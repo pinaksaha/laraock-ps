@@ -4,3 +4,4 @@ nginx/ssl/*
 !nginx/ssl/.gitkeep
 mysql/data/
 .idea/
+.claude/
