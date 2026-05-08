@@ -1,0 +1,5 @@
+.env
+logs/
+nginx/ssl/*
+!nginx/ssl/.gitkeep
+mysql/data/

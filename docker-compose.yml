@@ -1,0 +1,149 @@
+name: ${COMPOSE_PROJECT_NAME:-laravel-stack}
+
+services:
+  nginx:
+    build:
+      context: ./nginx
+    image: ${COMPOSE_PROJECT_NAME:-laravel-stack}/nginx:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-laravel-stack}-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ${APPS_PATH:-../apps}:/var/www/apps:cached
+      - ./nginx/sites:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - php
+    networks:
+      - laravel
+
+  php:
+    build:
+      context: ./php
+      args:
+        PHP_VERSION: ${PHP_VERSION:-8.3}
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    image: ${COMPOSE_PROJECT_NAME:-laravel-stack}/php:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-laravel-stack}-php
+    restart: unless-stopped
+    working_dir: /var/www/apps
+    volumes:
+      - ${APPS_PATH:-../apps}:/var/www/apps:cached
+      - ./php/php.ini:/usr/local/etc/php/conf.d/zz-custom.ini:ro
+      - ./php/www.conf:/usr/local/etc/php-fpm.d/zz-www.conf:ro
+      - ./logs/php:/var/log/php
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - laravel
+
+  mysql:
+    image: mysql:8.0
+    container_name: ${COMPOSE_PROJECT_NAME:-laravel-stack}-mysql
+    restart: unless-stopped
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-secret}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-laravel}
+      MYSQL_USER: ${MYSQL_USER:-laravel}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-secret}
+      MYSQL_MULTIPLE_DATABASES: ${MYSQL_MULTIPLE_DATABASES:-}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      - ./mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-secret}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - laravel
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-laravel-stack}-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - laravel
+
+  # ---------------------------------------------------------------------------
+  # Optional services. Enable with: `docker compose --profile workers up -d`
+  # Edit the APP_DIR env to point at the specific Laravel app you want to run
+  # the worker / scheduler against, or duplicate these blocks per app.
+  # ---------------------------------------------------------------------------
+  queue:
+    profiles: ["workers"]
+    image: ${COMPOSE_PROJECT_NAME:-laravel-stack}/php:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-laravel-stack}-queue
+    restart: unless-stopped
+    working_dir: /var/www/apps/${QUEUE_APP_DIR:-app1}
+    command: ["php", "artisan", "queue:work", "--sleep=3", "--tries=3", "--max-time=3600"]
+    volumes:
+      - ${APPS_PATH:-../apps}:/var/www/apps:cached
+      - ./php/php.ini:/usr/local/etc/php/conf.d/zz-custom.ini:ro
+    depends_on:
+      - php
+    networks:
+      - laravel
+
+  scheduler:
+    profiles: ["workers"]
+    image: ${COMPOSE_PROJECT_NAME:-laravel-stack}/php:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-laravel-stack}-scheduler
+    restart: unless-stopped
+    working_dir: /var/www/apps/${SCHEDULER_APP_DIR:-app1}
+    command: ["/bin/sh", "-c", "while true; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"]
+    volumes:
+      - ${APPS_PATH:-../apps}:/var/www/apps:cached
+      - ./php/php.ini:/usr/local/etc/php/conf.d/zz-custom.ini:ro
+    depends_on:
+      - php
+    networks:
+      - laravel
+
+  # phpMyAdmin — enable with `docker compose --profile tools up -d`
+  phpmyadmin:
+    profiles: ["tools"]
+    image: phpmyadmin/phpmyadmin:5
+    container_name: ${COMPOSE_PROJECT_NAME:-laravel-stack}-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "${PMA_PORT:-8080}:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      UPLOAD_LIMIT: 256M
+    depends_on:
+      - mysql
+    networks:
+      - laravel
+
+networks:
+  laravel:
+    driver: bridge
+
+volumes:
+  mysql-data:
+    driver: local
+  redis-data:
+    driver: local

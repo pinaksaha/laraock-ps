@@ -1,0 +1,45 @@
+# Copy this file to <your-app>.conf and replace placeholders.
+#   APP_NAME       — folder name under apps/ (e.g. shop, blog, api)
+#   APP_HOST       — hostname or `localhost` if you go port-based
+#   APP_PORT       — listening port (80 if you use unique hostnames)
+#
+# Don't forget to add the host to /etc/hosts when using a custom name:
+#   127.0.0.1 APP_HOST
+
+server {
+    listen APP_PORT;
+    listen [::]:APP_PORT;
+    server_name APP_HOST;
+
+    root /var/www/apps/APP_NAME/public;
+    index index.php index.html;
+
+    charset utf-8;
+
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+    add_header Referrer-Policy "no-referrer-when-downgrade";
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
+
+    error_page 404 /index.php;
+
+    location ~ \.php$ {
+        try_files $uri =404;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_pass php:9000;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT   $realpath_root;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
